@@ -1,0 +1,126 @@
+
+// Developer: Forex Robot Easy Team
+// Developer's site: forexroboteasy.com
+// Program name: Neuron Net GOLD
+
+// Include necessary libraries
+#include <Python.mqh>
+#include <MQL5.mqh>
+
+// Define input parameters
+input string ModelPath = 'path/to/model';  // Path to the trained model
+input int LotSize = 0.01;  // Trading lot size
+input int StopLoss = 100;  // Stop loss in points
+input int TakeProfit = 200;  // Take profit in points
+input int MaxSpread = 10;  // Maximum allowed spread in points
+input int MaxSlippage = 5;  // Maximum allowed slippage in points
+
+// Declare global variables
+int ticket;  // Order ticket
+double prediction;  // Predicted price movement
+
+// Initialize Python interpreter
+void OnInit()
+{
+    Py_Initialize();
+}
+
+// Deinitialize Python interpreter
+void OnDeinit(const int reason)
+{
+    Py_Finalize();
+}
+
+// Calculate predicted price movement using the trained model
+double PredictPriceMovement()
+{
+    PyObject* pModule;
+    PyObject* pFunc;
+    PyObject* pValue;
+
+    // Import the trained model
+    pModule = PyImport_ImportModule(ModelPath);
+    
+    // Get the predict function from the model
+    pFunc = PyObject_GetAttrString(pModule, 'predict');
+    
+    // Call the predict function with necessary inputs
+    pValue = PyObject_CallFunction(pFunc, 's', 'input_data');
+    
+    // Convert the predicted value to double
+    prediction = PyFloat_AsDouble(pValue);
+    
+    // Clean up
+    Py_DECREF(pValue);
+    Py_DECREF(pFunc);
+    Py_DECREF(pModule);
+
+    return prediction;
+}
+
+// Open a buy order if predicted price movement is positive, otherwise open a sell order
+void OpenOrder()
+{
+    if (prediction > 0)
+    {
+        ticket = OrderSend(Symbol(), OP_BUY, LotSize, Bid, MaxSlippage, Bid - StopLoss * Point, Bid + TakeProfit * Point);
+    }
+    else
+    {
+        ticket = OrderSend(Symbol(), OP_SELL, LotSize, Ask, MaxSlippage, Ask + StopLoss * Point, Ask - TakeProfit * Point);
+    }
+}
+
+// Check if the order is closed
+bool IsOrderClosed()
+{
+    MqlTradeRequest request;
+    MqlTradeResult result;
+    
+    ZeroMemory(request);
+    ZeroMemory(result);
+    
+    request.action = TRADE_ACTION_SLTP;
+    request.type = ORDER_TYPE_SELL;
+    
+    if (OrderGetTicket(ticket) != INVALID_TICKET)
+    {
+        OrderSelect(ticket, SELECT_BY_TICKET);
+        
+        if (OrderClose(OrderTicket(), OrderLots(), OrderClosePrice(), MaxSlippage, CLR_NONE))
+        {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// Entry point of the trading robot
+void OnTick()
+{
+    double currentSpread = MarketInfo(Symbol(), MODE_SPREAD);
+    
+    // Only trade when the spread is within the allowed range
+    if (currentSpread <= MaxSpread)
+    {
+        double currentSlippage = MarketInfo(Symbol(), MODE_STOPLEVEL);
+        
+        // Only trade when the slippage is within the allowed range
+        if (currentSlippage <= MaxSlippage)
+        {
+            // Calculate predicted price movement
+            double prediction = PredictPriceMovement();
+            
+            // Open an order based on the prediction
+            OpenOrder();
+            
+            // Check if the order is closed
+            if (IsOrderClosed())
+            {
+                // Print the result
+                Print('Order closed successfully!');
+            }
+        }
+    }
+}
